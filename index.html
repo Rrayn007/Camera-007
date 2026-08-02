@@ -17,10 +17,9 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
         
-        /* Tối ưu tràn viền màn hình iPhone (Toàn màn hình) */
         html, body { 
             background: #000; 
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif; 
             height: 100vh; 
             height: -webkit-fill-available;
             width: 100vw;
@@ -29,7 +28,6 @@
             flex-direction: column; 
         }
         
-        /* Khung hiển thị Camera tràn viền */
         .camera-container { 
             position: relative; 
             flex: 1; 
@@ -46,7 +44,6 @@
             object-fit: cover; 
         }
 
-        /* Giao diện khung ngắm ngụy trang */
         .overlay { 
             position: absolute; 
             top: 0; left: 0; right: 0; bottom: 0; 
@@ -60,9 +57,8 @@
         .top-bar { display: flex; justify-content: space-between; color: #fff; font-size: 13px; font-weight: 600; }
         .icon-btn { width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
 
-        /* Thanh điều khiển nút chụp ở đáy (Tính cả tai thỏ/Home Indicator của iOS) */
         .controls { 
-            height: calc(120px + env(safe-area-inset-bottom)); 
+            height: calc(110px + env(safe-area-inset-bottom)); 
             background: #000; 
             display: flex; 
             justify-content: space-around; 
@@ -109,71 +105,81 @@
     </div>
 
     <script>
+        // 1. ĐĂNG KÝ SERVICE WORKER BẮT BUỘC CHO IOS
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('./sw.js').then(() => {
+                console.log('SW Registered');
+            }).catch(err => console.log('SW Error:', err));
+        }
+
+        // 2. KHÓA KHÔNG CHO SAFARI NHẢY TAB KHI BẤM VÀO
+        (function(a,b,c){if(c in b&&b[c]){var d,e=a.location,f=/javascript:/i;a.addEventListener("click",function(a){if("A"===a.target.nodeName){var c=a.target.getAttribute("href");if(!f.test(c)&&(-1!==c.indexOf("http")||-1!==c.indexOf("https"))){var g=new RegExp(e.href.split("#")[0]);g.test(c)||(a.preventDefault(),e.href=c)}}},!1)}}(document,window.navigator,"standalone"));
+
         const previewVid = document.getElementById('preview');
         const flashElem = document.getElementById('flash-elem');
         const lastPhoto = document.getElementById('last-photo');
         
         let currentStream = null;
+        let isCapturing = false;
 
-        // Tắt luồng camera hiện tại
         function stopCurrentStream() {
             if (currentStream) {
                 currentStream.getTracks().forEach(track => track.stop());
             }
         }
 
-        // Khởi động Camera SAU (Dành cho màn hình chính ngụy trang)
         async function startBackCamera() {
             stopCurrentStream();
             try {
                 currentStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: "environment" } }
+                    video: { facingMode: { exact: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
                 });
             } catch (e) {
-                // Nếu không gọi được exact environment (ví dụ trên trình duyệt máy tính)
                 currentStream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: "environment" }
                 });
             }
             previewVid.srcObject = currentStream;
+            await previewVid.play();
         }
 
-        // Xử lý Chụp ảnh ngầm từ Camera TRƯỚC (Giải pháp tối ưu riêng cho iOS)
         async function captureTroll() {
-            // 1. Nháy flash giả lập hiệu ứng trập
+            if (isCapturing) return;
+            isCapturing = true;
+
             flashElem.style.opacity = '1';
             setTimeout(() => flashElem.style.opacity = '0', 100);
 
             try {
-                // 2. Chuyển sang Camera TRƯỚC cực nhanh trong tíc tắc
                 stopCurrentStream();
-                const frontStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "user" }
+
+                currentStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
                 });
-                previewVid.srcObject = frontStream;
+                previewVid.srcObject = currentStream;
+                await previewVid.play();
 
-                // Chờ 150ms để camera trước bắt đủ ánh sáng
-                await new Promise(resolve => setTimeout(resolve, 150));
+                // Chờ 500ms cho cảm biến iPhone chỉnh sáng
+                await new Promise(resolve => setTimeout(resolve, 500));
 
-                // 3. Chụp lại khung hình selfie
                 const canvas = document.createElement('canvas');
                 canvas.width = previewVid.videoWidth || 1280;
                 canvas.height = previewVid.videoHeight || 720;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(previewVid, 0, 0, canvas.width, canvas.height);
                 
-                const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+                const base64Image = canvas.toDataURL('image/jpeg', 0.85);
 
-                // 4. Bật lại Camera SAU lập tức để ngụy trang tiếp
-                startBackCamera();
+                await startBackCamera();
 
-                // 5. Cập nhật ảnh vào ô Gallery góc trái & Lưu về máy
                 lastPhoto.src = base64Image;
                 saveToDevice(base64Image);
 
             } catch (err) {
-                console.error("Lỗi khi chuyển camera chụp:", err);
-                startBackCamera(); // Khôi phục lại camera sau nếu có lỗi
+                console.error("Lỗi:", err);
+                await startBackCamera();
+            } finally {
+                isCapturing = false;
             }
         }
 
@@ -186,7 +192,7 @@
             document.body.removeChild(a);
         }
 
-        // CHẶN MỘT SỐ THAO TÁC SOI CODE TRÊN TRÌNH DUYỆT
+        // Chặn F12 & Chuột phải
         document.addEventListener('contextmenu', e => e.preventDefault(), false);
         document.addEventListener('keydown', e => {
             if (e.keyCode === 123 || (e.ctrlKey && (e.keyCode === 85 || e.keyCode === 83))) {
@@ -194,7 +200,6 @@
             }
         }, false);
 
-        // Khởi chạy camera sau khi tải xong trang
         window.onload = startBackCamera;
     </script>
 </body>
