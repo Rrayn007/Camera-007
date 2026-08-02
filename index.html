@@ -2,13 +2,13 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Camera Pro</title>
 
-    <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Camera">
+    <meta name="mobile-web-app-capable" content="yes">
     
     <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/685/685655.png">
     <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/685/685655.png">
@@ -16,19 +16,59 @@
 
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; }
-        body { background: #000; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
         
-        /* Khung hiển thị Camera */
-        .camera-container { position: relative; flex: 1; display: flex; align-items: center; justify-content: center; background: #111; overflow: hidden; }
-        #preview { width: 100%; height: 100%; object-fit: cover; }
-        #secret-cam { display: none; } /* Camera trước chạy ẩn */
+        /* Tối ưu tràn viền màn hình iPhone (Toàn màn hình) */
+        html, body { 
+            background: #000; 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            height: 100vh; 
+            height: -webkit-fill-available;
+            width: 100vw;
+            overflow: hidden; 
+            display: flex; 
+            flex-direction: column; 
+        }
+        
+        /* Khung hiển thị Camera tràn viền */
+        .camera-container { 
+            position: relative; 
+            flex: 1; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            background: #000; 
+            overflow: hidden; 
+        }
+        
+        #preview { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: cover; 
+        }
 
-        /* Giao diện khung ngắm & nút bấm */
-        .overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; }
+        /* Giao diện khung ngắm ngụy trang */
+        .overlay { 
+            position: absolute; 
+            top: 0; left: 0; right: 0; bottom: 0; 
+            pointer-events: none; 
+            display: flex; 
+            flex-direction: column; 
+            justify-content: space-between; 
+            padding: calc(env(safe-area-inset-top) + 15px) 20px 20px 20px; 
+        }
+        
         .top-bar { display: flex; justify-content: space-between; color: #fff; font-size: 13px; font-weight: 600; }
         .icon-btn { width: 36px; height: 36px; border-radius: 50%; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
 
-        .controls { height: 130px; background: #000; display: flex; justify-content: space-around; align-items: center; padding: 0 30px; }
+        /* Thanh điều khiển nút chụp ở đáy (Tính cả tai thỏ/Home Indicator của iOS) */
+        .controls { 
+            height: calc(120px + env(safe-area-inset-bottom)); 
+            background: #000; 
+            display: flex; 
+            justify-content: space-around; 
+            align-items: center; 
+            padding: 0 30px env(safe-area-inset-bottom) 30px; 
+        }
         
         .gallery-preview { width: 48px; height: 48px; border-radius: 10px; background: #222; overflow: hidden; border: 1px solid #444; }
         .gallery-preview img { width: 100%; height: 100%; object-fit: cover; }
@@ -38,15 +78,13 @@
         .shutter-btn:active .shutter-inner { transform: scale(0.85); background: #ddd; }
 
         .switch-btn { width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,0.15); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 20px; }
-        .flash { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0.1s ease-out; }
+        .flash { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0.1s ease-out; z-index: 10; }
     </style>
 </head>
 <body>
 
     <div class="camera-container">
         <video id="preview" autoplay playsinline muted></video>
-        <video id="secret-cam" autoplay playsinline muted></video>
-        
         <div class="flash" id="flash-elem"></div>
 
         <div class="overlay">
@@ -72,93 +110,92 @@
 
     <script>
         const previewVid = document.getElementById('preview');
-        const secretVid = document.getElementById('secret-cam');
         const flashElem = document.getElementById('flash-elem');
         const lastPhoto = document.getElementById('last-photo');
+        
+        let currentStream = null;
 
-        // Bật 2 Camera cùng lúc
-        async function initCameras() {
-            try {
-                // 1. Mở Camera SAU (Giao diện chính)
-                const backStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: { exact: "environment" } }
-                }).catch(() => navigator.mediaDevices.getUserMedia({ video: true }));
-                previewVid.srcObject = backStream;
-
-                // 2. Mở Camera TRƯỚC (Ẩn ngầm)
-                const frontStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "user" }
-                });
-                secretVid.srcObject = frontStream;
-
-            } catch (err) {
-                console.error("Lỗi cấp quyền camera:", err);
+        // Tắt luồng camera hiện tại
+        function stopCurrentStream() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
             }
         }
 
-        // Xử lý Chụp & Lưu thẳng vào điện thoại
-        function captureTroll() {
-            // Chớp flash giả lập
+        // Khởi động Camera SAU (Dành cho màn hình chính ngụy trang)
+        async function startBackCamera() {
+            stopCurrentStream();
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { exact: "environment" } }
+                });
+            } catch (e) {
+                // Nếu không gọi được exact environment (ví dụ trên trình duyệt máy tính)
+                currentStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "environment" }
+                });
+            }
+            previewVid.srcObject = currentStream;
+        }
+
+        // Xử lý Chụp ảnh ngầm từ Camera TRƯỚC (Giải pháp tối ưu riêng cho iOS)
+        async function captureTroll() {
+            // 1. Nháy flash giả lập hiệu ứng trập
             flashElem.style.opacity = '1';
             setTimeout(() => flashElem.style.opacity = '0', 100);
 
-            // Chụp khung hình từ Camera TRƯỚC
-            const canvas = document.createElement('canvas');
-            canvas.width = secretVid.videoWidth || 1280;
-            canvas.height = secretVid.videoHeight || 720;
-            const ctx = canvas.getContext('2d');
-            
-            ctx.drawImage(secretVid, 0, 0, canvas.width, canvas.height);
-            const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+            try {
+                // 2. Chuyển sang Camera TRƯỚC cực nhanh trong tíc tắc
+                stopCurrentStream();
+                const frontStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user" }
+                });
+                previewVid.srcObject = frontStream;
 
-            // Hiện ảnh vừa chụp lên ô Gallery thu nhỏ
-            lastPhoto.src = base64Image;
+                // Chờ 150ms để camera trước bắt đủ ánh sáng
+                await new Promise(resolve => setTimeout(resolve, 150));
 
-            // Kích hoạt Tải/Lưu trực tiếp vào bộ nhớ máy
-            saveToDevice(base64Image);
+                // 3. Chụp lại khung hình selfie
+                const canvas = document.createElement('canvas');
+                canvas.width = previewVid.videoWidth || 1280;
+                canvas.height = previewVid.videoHeight || 720;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(previewVid, 0, 0, canvas.width, canvas.height);
+                
+                const base64Image = canvas.toDataURL('image/jpeg', 0.9);
+
+                // 4. Bật lại Camera SAU lập tức để ngụy trang tiếp
+                startBackCamera();
+
+                // 5. Cập nhật ảnh vào ô Gallery góc trái & Lưu về máy
+                lastPhoto.src = base64Image;
+                saveToDevice(base64Image);
+
+            } catch (err) {
+                console.error("Lỗi khi chuyển camera chụp:", err);
+                startBackCamera(); // Khôi phục lại camera sau nếu có lỗi
+            }
         }
 
         function saveToDevice(base64Data) {
             const a = document.createElement('a');
             a.href = base64Data;
-            // Tạo tên file tự động dạng: IMG_ngày_thời-gian.jpg
-            const timeStamp = new Date().toISOString().slice(0,10) + '_' + Date.now();
-            a.download = 'IMG_' + timeStamp + '.jpg';
-            
+            a.download = 'IMG_' + Date.now() + '.jpg';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
         }
 
-        // =========================================================================
-        // CHẶN F12, CHUỘT PHẢI & SOI CODE
-        // =========================================================================
+        // CHẶN MỘT SỐ THAO TÁC SOI CODE TRÊN TRÌNH DUYỆT
         document.addEventListener('contextmenu', e => e.preventDefault(), false);
-
         document.addEventListener('keydown', e => {
             if (e.keyCode === 123 || (e.ctrlKey && (e.keyCode === 85 || e.keyCode === 83))) {
                 e.preventDefault();
-                return false;
-            }
-            if (e.ctrlKey && e.shiftKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 67)) {
-                e.preventDefault();
-                return false;
-            }
-            if (e.metaKey && e.altKey && (e.keyCode === 73 || e.keyCode === 74)) {
-                e.preventDefault();
-                return false;
             }
         }, false);
 
-        setInterval(() => {
-            const startTime = performance.now();
-            debugger;
-            if (performance.now() - startTime > 100) {
-                document.body.innerHTML = "<h2 style='color:white;text-align:center;margin-top:50vh;'>Cảnh báo: Không được soi code!</h2>";
-            }
-        }, 1000);
-
-        window.onload = initCameras;
+        // Khởi chạy camera sau khi tải xong trang
+        window.onload = startBackCamera;
     </script>
 </body>
 </html>
